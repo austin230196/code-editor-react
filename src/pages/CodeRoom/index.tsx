@@ -7,31 +7,41 @@ import {editor} from "monaco-editor";
 
 
 import useLocalStorage from "../../hooks/useLocalStorage";
-import axiosInstance from "../../axios";
-import { JUDGE0_HOST, JUDGE0_KEY, JUDGE0_URL } from "../../constants";
+import Output from "./components/Output";
+import { compileCode, getCodeOutput, getCompilers } from "../../services/apis/judge0";
+
+
+
+function Panel({run}: {run: () => void}){
+    return (
+        <div className="fixed bottom-0 left-0 right-0 z-1000 p-2 flex items-center gap-5">
+            <button onClick={run} className="rounded-md bg-green-500 px-10 py-3 text-sm text-bold">Run</button>
+        </div>
+    )
+}
 
 
 const CodeRoom = () => {
     const monaco = useMonaco();
     const {value: va, clear, setItem} = useLocalStorage("theme");
     const [code, setCode] = useState("");
+    const [output, setOutput] = useState(null);
     // const editorRef = useRef<editor.IStandaloneCodeEditor>();
     const [defaultLanguage, setDefaultLanguage] = useState("rust");
     const v = useRef(va);
     // const url = "ws://127.0.0.1:9000";
-    const validLanguages = monaco?.languages.getLanguages().map(l => l.id);
-    console.log({validLanguages, l: monaco?.languages.getLanguages()})
+    const validLanguages = monaco?.languages.getLanguages();
+    console.log({validLanguages})
 
     const compilerLanguages = useMemo(async () => {
-        const res = await axiosInstance.get(`${JUDGE0_URL}/languages`, {
-            headers: {
-                'X-RapidAPI-Key': JUDGE0_KEY,
-                'X-RapidAPI-Host': JUDGE0_HOST,
-                'Content-Type': 'application/json',
-                'content-type': 'application/json'
-            }
-        })
-        return res.data
+        try{
+            const res = await getCompilers();
+            console.log({res});
+            if(!res.success) return [];
+            return res.data
+        }catch(e: any){
+            console.log({e})
+        }
     }, []);
     
     function handleEditorDidMount(editor: editor.IStandaloneCodeEditor) {
@@ -54,53 +64,51 @@ const CodeRoom = () => {
     function handleEditorChange(value: string, event: editor.IModelContentChangedEvent){
         console.log({event});
         setCode(() => value);
-        handleCompile()
     }
 
     async function handleCompile(){
         try{
-            const formdata = {
-                // language_id: ,
-                source_code: btoa(code),
+            //to get the compiler to use 
+            //check the language and then sort the language compiler available
+            let languageId: number = 0;
+            let lang =  (await compilerLanguages).find((l: {name: string, id: number}) => l.name.toLocaleLowerCase().includes(defaultLanguage));
+            console.log({lang});
+            languageId = lang.id;
+            // let lang = defaultLanguage. 
+            const res = await compileCode(languageId, btoa(code));
+            console.log({res});
+            if(res.token){
+                const out = await getCodeOutput(res.token);
+                setOutput(() => out);
             }
-            const res = await axiosInstance.post(`${JUDGE0_URL}/submissions`, formdata, {
-                params: {
-                    base64_encoded: true,
-                    fields: '*'
-                },
-                headers: {
-                    'X-RapidAPI-Key': JUDGE0_KEY,
-                    'X-RapidAPI-Host': JUDGE0_HOST,
-                    'Content-Type': 'application/json',
-                    'content-type': 'application/json'
-                }
-            })
         }catch(e: any){
             console.log(e.message);
         }
     }
 
-    console.log(compilerLanguages);
+    // console.log(compilerLanguages);
 
 
     return (
         <div className="">
             <select value={defaultLanguage} onChange={e => setDefaultLanguage(() => e.target.value)}>
                 {
-                    validLanguages?.map((l: string, i: number) => (
-                        <option value={l} key={i}>{l.toLocaleLowerCase()}</option>
+                    validLanguages?.map((l: any, i: number) => (
+                        <option value={l.id} key={i}>{l.id.toLocaleLowerCase()}</option>
                     ))
                 }
             </select>
+            {output ? <Output output={output} /> : null}
             <Editor
-            height={"100vh"}
-            width={"100%"}
-            value={code}
-            language={defaultLanguage}
-            theme={v.current === 'dark' ? "vs-dark" : "vs-light"}
-            onChange={handleEditorChange as OnChange}
-            onMount={handleEditorDidMount}
+                height={"100vh"}
+                width={"100%"}
+                value={code}
+                language={defaultLanguage}
+                theme={v.current === 'dark' ? "vs-dark" : "vs-light"}
+                onChange={handleEditorChange as OnChange}
+                onMount={handleEditorDidMount}
             />
+            <Panel run={handleCompile} />
         </div>
     )
 }
